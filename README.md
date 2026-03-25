@@ -1,4 +1,4 @@
-# 🏎 F1 Strategy Champion Analysis
+# F1 Strategy Champion Analysis
 
 > *"How do podium finishers differ from mid-field in tire strategy and pace management — and what should Ferrari change?"*
 
@@ -36,7 +36,7 @@ Pulls live race data from the [FastF1 API](https://github.com/theOehrly/Fast-F1)
 Define the business question and scope: podium (P1–P3) vs. Top10 (P4–P10) vs. Back (P11+), Ferrari as benchmark team.
 
 ### Phase 2 — Prepare
-Pull all race sessions via FastF1 for 2022–2024. Filter to full-time drivers (majority of races per season) to exclude one-off entries that would skew the data.
+Pull all race sessions via FastF1 for 2022–2024. Filter to full-time drivers (the majority of races per season) to exclude one-off entries that would skew the data.
 
 ### Phase 3 — Process
 - Remove null lap times, pit in/out laps, wet-weather compound laps
@@ -73,7 +73,7 @@ Data-driven recommendations on pit timing, compound selection, and circuit-speci
 ## Recommendations
 
 1. **Pit Timing** — Commit to early undercut window (laps 12–18) on high-degradation circuits; data shows podium finishers are more aggressive here
-2. **Compound Selection** — Calibrate SOFT stint length by circuit degradation rate: 12–14 laps on high-deg circuits, 18–22 on low-deg
+2. **Compound Selection** — Calibrate SOFT stint length by circuit degradation rate: 12–14 laps on high-deg circuits, 18–22 on low-deg circuits
 3. **Circuit Focus** — Prioritize strategy planning resources on high-variance circuits (Monaco, Hungary, Austria) where strategy delta is largest
 
 ---
@@ -106,4 +106,4 @@ On first run, FastF1 downloads and caches session data to `f1_cache/`. Subsequen
 
 ---
 
-*Analysis covers the 2022–2024 F1 ground effect regulation era.*
+*Analysis covers the 2022–2025 F1 ground effect regulation era.*
