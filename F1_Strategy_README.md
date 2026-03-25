@@ -1,39 +1,42 @@
-# F1 Strategy Readme
+# F1 Strategy Champion Analysis
 
 ## Table of Contents
-1. [Introduction](#introduction)
-2. [Prerequisites](#prerequisites)
-3. [Installation](#installation)
-4. [Usage](#usage)
-5. [Troubleshooting](#troubleshooting)
-6. [License](#license)
+- [Introduction](#introduction)
+- [Python Version Badges](#python-version-badges)
+- [Prerequisites](#prerequisites)
+- [Installation Steps](#installation-steps)
+- [Output](#output)
+- [Troubleshooting](#troubleshooting)
 
 ## Introduction
-This repository contains analysis and strategies related to Formula 1 racing. This document provides all necessary information for utilizing this project effectively.
+This project analyzes F1 strategies and their effectiveness over various races.
+
+## Python Version Badges
+![Python Version](https://img.shields.io/badge/python-3.8-blue)
 
 ## Prerequisites
-- Python 3.x
-- Libraries: `pandas`, `numpy`, `matplotlib`
-- Access to F1 data sources (e.g., API, CSV files)
+- Python 3.8 or higher
+- Required libraries (to be listed)
 
-## Installation
-1. Clone the repository:  
-   `git clone https://github.com/jbattohokson/F1_Strategy_Champion_Analysis`
-2. Change directory:  
-   `cd F1_Strategy_Champion_Analysis`
-3. Install dependencies:  
-   `pip install -r requirements.txt`
+## Installation Steps
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/jbattohokson/F1_Strategy_Champion_Analysis.git
+   cd F1_Strategy_Champion_Analysis
+   ```
+2. Install the required libraries:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Usage
-- Run the analysis script using Python:  
-   `python analysis.py`
-- Output will be saved in the `output` directory.
+## Output
+The output of the analysis will be displayed in a variety of formats, including plots and tables.
 
 ## Troubleshooting
-- **Issue:** Script fails to load data.  
-  **Solution:** Ensure that data files are in the correct format and located in the right directory.
-- **Issue:** Dependency errors.  
-  **Solution:** Check installed Python libraries and their versions.
+- If you encounter any issues, please check if all prerequisites are installed.
+- For further assistance, refer to the issues section of this repository.
 
-## License
-This project is licensed under the MIT License.
+---
+
+### Original Content
+%PLACEHOLDER_FOR_ORIGINAL_CONTENT%
