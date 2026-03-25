@@ -1,2 +1,0 @@
-# Force GitHub Linguist to detect SQL as a language
-*.sql linguist-detectable=true linguist-language=SQL
