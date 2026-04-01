@@ -32,28 +32,28 @@ Pulls live race data from the [FastF1 API](https://github.com/theOehrly/Fast-F1)
 
 ## Methodology
 
-### Phase 1 — Ask
+### Phase 1: Ask
 Define the business question and scope: podium (P1–P3) vs. Top10 (P4–P10) vs. Back (P11+), Ferrari as benchmark team.
 
-### Phase 2 — Prepare
+### Phase 2: Prepare
 Pull all race sessions via FastF1 for 2022–2024. Filter to full-time drivers (the majority of races per season) to exclude one-off entries that would skew the data.
 
-### Phase 3 — Process
+### Phase 3: Process
 - Remove null lap times, pit in/out laps, wet-weather compound laps
 - Apply 110% fastest lap filter to remove safety car and anomaly laps
 - Z-score normalize lap times within each race for cross-circuit comparison
 - Compute `lap_in_stint` (lap number within each tire stint)
 
-### Phase 4 — Analyze
+### Phase 4: Analyze
 - **Tire degradation slope**, OLS regression of lap time vs. lap-in-stint per driver per stint
 - **Strategy delta**, pace rank minus finish position (positive = strategy gained positions)
 - **Pit window analysis**, classify pit stop timing as early (<33% race distance), mid, or late
 - **Ferrari benchmark**, compare Ferrari's metrics against podium finishers and the full field
 
-### Phase 5 — Share
+### Phase 5: Share
 Export 7 CSVs to `tableau_export/` for Tableau dashboard use, plus Ferrari-specific exports.
 
-### Phase 6 — Act
+### Phase 6: Act
 Data-driven recommendations on pit timing, compound selection, and circuit-specific strategy planning.
 
 ---
