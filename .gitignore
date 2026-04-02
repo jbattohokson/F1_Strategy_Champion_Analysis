@@ -1,0 +1,5 @@
+f1_cache/
+raw_data/
+tableau_export/
+charts/
+*.db
