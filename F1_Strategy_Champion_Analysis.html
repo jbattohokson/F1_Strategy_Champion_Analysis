@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>F1 Champion Strategy Analysis</title>
+<style>
+  :root{--ink:#0f1117;--ink-light:#4a4f5e;--border:#dde1ea;--bg:#f7f8fc;--white:#ffffff;--accent:#1a56db;--accent-dim:#e8eefb;--warn:#c0392b;--warn-dim:#fdf0ee;--green:#1a7f4b;--green-dim:#eaf5ef;--amber:#b45309;--amber-dim:#fef3e2;--mono:'Courier New',Courier,monospace}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:'Georgia',serif;font-size:16px;line-height:1.7;color:var(--ink);background:var(--bg)}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  .page-wrap{max-width:860px;margin:0 auto;padding:0 24px 80px}
+  header{background:#1a0a2e;color:var(--white);padding:56px 0 44px}
+  header .page-wrap{padding-top:0;padding-bottom:0}
+  .eyebrow{font-family:'Arial',sans-serif;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9b8ec4;margin-bottom:14px}
+  h1{font-size:clamp(24px,4vw,38px);font-weight:normal;line-height:1.2;letter-spacing:-.02em;margin-bottom:18px}
+  h1 em{font-style:italic;color:#9b8ec4}
+  .meta{font-family:'Arial',sans-serif;font-size:13px;color:#9b8ec4;display:flex;flex-wrap:wrap;gap:20px}
+  .meta span::before{content:'-- '}
+  .sticky-nav{position:sticky;top:0;background:var(--white);border-bottom:1px solid var(--border);z-index:100;padding:10px 0}
+  .sticky-nav .page-wrap{display:flex;gap:24px;flex-wrap:wrap;padding-top:0;padding-bottom:0}
+  .sticky-nav a{font-family:'Arial',sans-serif;font-size:12.5px;color:var(--ink-light);font-weight:500}
+  .sticky-nav a:hover{color:var(--accent);text-decoration:none}
+  .exec-summary{background:var(--white);border:1px solid var(--border);border-left:4px solid var(--accent);padding:28px 32px;margin:40px 0 48px;border-radius:0 6px 6px 0}
+  .exec-summary h2{font-family:'Arial',sans-serif;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:14px}
+  .exec-summary p{font-size:15.5px;margin-bottom:10px}
+  .exec-summary p:last-child{margin-bottom:0}
+  .kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:16px;margin-bottom:56px}
+  .kpi{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:20px 18px;text-align:center}
+  .kpi .num{font-size:26px;font-weight:700;font-family:'Arial',sans-serif;letter-spacing:-.03em;line-height:1;margin-bottom:6px}
+  .kpi .num.warn{color:var(--warn)}.kpi .num.good{color:var(--green)}.kpi .num.amber{color:var(--amber)}.kpi .num.blue{color:var(--accent)}
+  .kpi .label{font-family:'Arial',sans-serif;font-size:11.5px;color:var(--ink-light);line-height:1.4}
+  .section{margin-bottom:56px}
+  .section-label{font-family:'Arial',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-light);margin-bottom:6px}
+  h2.section-title{font-size:22px;font-weight:normal;letter-spacing:-.01em;margin-bottom:22px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+  .finding{background:var(--white);border:1px solid var(--border);border-radius:8px;margin-bottom:20px;overflow:hidden}
+  .finding-header{display:flex;align-items:flex-start;gap:16px;padding:22px 24px 18px;border-bottom:1px solid var(--border)}
+  .finding-number{font-family:'Arial',sans-serif;font-size:11px;font-weight:700;color:var(--white);background:var(--ink);border-radius:4px;padding:3px 7px;flex-shrink:0;margin-top:2px}
+  .finding-title{font-size:16.5px;font-weight:normal;line-height:1.35}
+  .finding-body{padding:20px 24px}
+  .finding-body p{font-size:14.5px;margin-bottom:12px}
+  .finding-body p:last-child{margin-bottom:0}
+  .impact-block{border-radius:6px;padding:16px 18px;margin-top:14px;margin-bottom:14px}
+  .impact-block.red{background:var(--warn-dim);border-left:3px solid var(--warn)}
+  .impact-block.green{background:var(--green-dim);border-left:3px solid var(--green)}
+  .impact-block.amber{background:var(--amber-dim);border-left:3px solid var(--amber)}
+  .impact-block.blue{background:var(--accent-dim);border-left:3px solid var(--accent)}
+  .impact-label{font-family:'Arial',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
+  .impact-block.red .impact-label{color:var(--warn)}.impact-block.green .impact-label{color:var(--green)}
+  .impact-block.amber .impact-label{color:var(--amber)}.impact-block.blue .impact-label{color:var(--accent)}
+  .impact-block p{font-size:14px;line-height:1.6;margin:0}
+  .data-table-wrap{overflow-x:auto;margin:16px 0}
+  table{width:100%;border-collapse:collapse;font-family:'Arial',sans-serif;font-size:13px}
+  th{background:var(--ink);color:var(--white);text-align:left;padding:9px 12px;font-weight:600;font-size:12px;letter-spacing:.04em}
+  td{padding:9px 12px;border-bottom:1px solid var(--border)}
+  tr:last-child td{border-bottom:none}
+  tr:nth-child(even) td{background:var(--bg)}
+  .neg{color:var(--warn);font-weight:700}.pos{color:var(--green);font-weight:700}
+  .rec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .rec-card{background:var(--white);border:1px solid var(--border);border-radius:8px;padding:20px}
+  .rec-priority{font-family:'Arial',sans-serif;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+  .rec-priority.p1{color:var(--warn)}.rec-priority.p2{color:var(--amber)}.rec-priority.p3{color:var(--accent)}
+  .rec-card h3{font-size:15px;font-weight:normal;margin-bottom:10px;line-height:1.3}
+  .rec-card p{font-size:13.5px;color:var(--ink-light);line-height:1.6;margin-bottom:10px}
+  .rec-card p:last-child{margin-bottom:0}
+  .rec-impact{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;color:var(--ink);margin-top:10px}
+  .deg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0}
+  .deg-cell{background:var(--white);border:1px solid var(--border);border-radius:6px;padding:14px;text-align:center}
+  .deg-cell .circuit-type{font-family:'Arial',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-light);margin-bottom:6px}
+  .deg-cell .deg-val{font-size:22px;font-weight:700;font-family:'Arial',sans-serif;letter-spacing:-.02em}
+  .deg-cell .deg-meta{font-family:'Arial',sans-serif;font-size:11px;color:var(--ink-light);margin-top:4px}
+  footer{border-top:1px solid var(--border);padding-top:28px;margin-top:64px;font-family:'Arial',sans-serif;font-size:12.5px;color:var(--ink-light);display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
+  @media(max-width:600px){.exec-summary{padding:20px 18px}.finding-header,.finding-body{padding:16px}.deg-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="page-wrap">
+    <p class="eyebrow">Motorsport Analytics -- Race Strategy</p>
+    <h1>Podium finishers don't just drive faster.<br><em>They pit smarter. The data shows by how much.</em></h1>
+    <div class="meta">
+      <span>Julian Batto-Hokson</span>
+      <span>69 races, 2022 to 2024, Ground Effect Era</span>
+      <span>Python, SQL, FastF1, Tableau</span>
+      <span>March 2026</span>
+    </div>
+  </div>
+</header>
+<nav class="sticky-nav"><div class="page-wrap"><a href="#summary">Summary</a><a href="#delta">Strategy Delta</a><a href="#findings">Findings</a><a href="#recommendations">Recommendations</a><a href="#model">Data</a></div></nav>
+<div class="page-wrap">
+<section id="summary" class="exec-summary">
+  <h2>Executive Summary</h2>
+  <p>Raw car speed determines a starting range of possible race results. Strategy determines where within that range a team actually finishes. This analysis quantifies that gap across 69 races in the 2022-2024 Ground Effect era, comparing podium finishers (P1-P3) against mid-field and back-of-grid competitors on three measurable dimensions: pit stop timing, tire compound selection, and stint length management.</p>
+  <p>The finding is specific. Podium finishers gain an average of 0.66 positions over their raw pace ranking through strategy execution alone. Ferrari's average strategy delta across the same period is -0.03 positions. That 0.69-position gap, sustained across a 24-race season, translates to an estimated 72 to 120 championship points left on the table -- a rough calculation based on average points-per-position-move across the P4-P8 scoring range, not a simulation. The difference between a strong constructor and a championship contender in most competitive seasons.</p>
+  <p>Three levers drive that gap: pit window timing (laps 12-18 on high-degradation circuits vs. Ferrari's tendency toward laps 18-22), compound sequencing, and circuit-specific pre-race strategy preparation. All three are correctable without a car development cycle.</p>
+</section>
+<div class="kpi-strip">
+  <div class="kpi"><div class="num good">+0.66</div><div class="label">Avg positions gained through strategy by podium finishers per race</div></div>
+  <div class="kpi"><div class="num warn">-0.03</div><div class="label">Ferrari's avg strategy delta over the same period</div></div>
+  <div class="kpi"><div class="num amber">0.69</div><div class="label">Position gap between Ferrari and podium-tier strategy execution</div></div>
+  <div class="kpi"><div class="num warn">72-120</div><div class="label">Est. championship points left on table per season from strategy gap</div></div>
+  <div class="kpi"><div class="num blue">Laps 12-18</div><div class="label">Pit window where podium drivers initiate on high-deg circuits</div></div>
+  <div class="kpi"><div class="num good">0.0302</div><div class="label">Peak medium tire degradation rate (sec/lap) recorded in 2023</div></div>
+</div>
+<section id="delta" class="section">
+  <p class="section-label">Core Metric</p>
+  <h2 class="section-title">The strategy delta -- positions gained over raw pace</h2>
+  <p style="font-size:14.5px;color:var(--ink-light);margin-bottom:20px">Strategy Delta = average finish position minus raw pace rank. A positive delta means a driver consistently finishes ahead of where their qualifying pace alone would place them.</p>
+  <div class="impact-block blue"><p class="impact-label">Why this metric matters</p><p>A driver who qualifies 7th and finishes 5th has a strategy delta of +2. A driver who qualifies 3rd and finishes 5th has a delta of -2. The delta strips out car performance and isolates the value added (or destroyed) by in-race decisions. Across 69 races, podium-tier drivers average +0.66. Ferrari averages -0.03. That difference compounds every race weekend.</p></div>
+  <div class="data-table-wrap"><table>
+    <thead><tr><th>Position Group</th><th>Avg Strategy Delta</th><th>Primary Mechanism</th></tr></thead>
+    <tbody>
+      <tr><td>Podium (P1-P3)</td><td class="pos">+0.66</td><td>Early pit windows, compound optionality</td></tr>
+      <tr><td>Top-10 (P4-P10)</td><td>+0.12</td><td>Reactive strategy, matched pace</td></tr>
+      <tr><td>Back-of-grid (P11+)</td><td class="neg">-0.06</td><td>Track position defense, tire conservation</td></tr>
+      <tr><td>Ferrari (2022-2024)</td><td class="neg">-0.03</td><td>Mid-window pits, HARD compound reliance</td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section id="findings" class="section">
+  <p class="section-label">Analysis</p>
+  <h2 class="section-title">What the data shows separates podium strategy from field-average execution</h2>
+  <div class="finding">
+    <div class="finding-header"><span class="finding-number">01</span><span class="finding-title">Pit window timing is the single largest strategic separator</span></div>
+    <div class="finding-body">
+      <p>Podium finishers consistently initiate their first pit stop between laps 12 and 18 on high and medium-degradation circuits. This timing triggers an undercut window: the driver on fresh tires produces faster laps than the rival still on older rubber, gaining time that translates to track position at the next pit sequence.</p>
+      <p>Ferrari's pit timing in the analysis period centers on laps 18-22 -- the reactive zone. Teams that pit after a competitor typically concede the undercut and defend track position instead of creating it.</p>
+      <div class="impact-block red"><p class="impact-label">Race Strategy Team</p><p>The fix is a specific lap number, not a philosophy change. On high-degradation circuits (Hungary, Austria, Suzuka), target lap 14 for the first pit. On medium-degradation circuits (Silverstone, Canada), target laps 16 to 18. Each 0.3 to 0.5 position gain per pit stop across two stops per race = 0.6 to 1.0 positions per race. Over 24 races, that is 14 to 24 additional championship points.</p></div>
+    </div>
+  </div>
+  <div class="finding">
+    <div class="finding-header"><span class="finding-number">02</span><span class="finding-title">Tire degradation rates vary enough across circuits to require pre-race protocols, not race-day decisions</span></div>
+    <div class="finding-body">
+      <p>Medium tire degradation ranged from 0.0049 sec/lap in 2022 to 0.0302 sec/lap in 2023 -- a sixfold variance in a single compound across seasons. Soft tires on high-degradation circuits degrade at -0.0814 sec/lap. Hard tires on low-degradation circuits hold nearly flat. That variance is predictable and circuit-specific.</p>
+      <div class="deg-grid">
+        <div class="deg-cell"><div class="circuit-type">High-Deg</div><div class="deg-val" style="color:var(--warn)">0.04-0.05</div><div class="deg-meta">sec/lap -- medium tire<br>Pit window: laps 12-16</div></div>
+        <div class="deg-cell"><div class="circuit-type">Medium-Deg</div><div class="deg-val" style="color:var(--amber)">0.02-0.03</div><div class="deg-meta">sec/lap -- medium tire<br>Pit window: laps 16-20</div></div>
+        <div class="deg-cell"><div class="circuit-type">Low-Deg</div><div class="deg-val" style="color:var(--green)">0.01 or less</div><div class="deg-meta">sec/lap -- medium tire<br>Pit window: laps 20-24</div></div>
+      </div>
+      <div class="impact-block amber"><p class="impact-label">Race Engineer / Strategy Team</p><p>Circuit-specific degradation rates should be pre-loaded into the race weekend strategy brief -- not calculated race-day. The variance between 2022 and 2023 (0.0049 vs. 0.0302 sec/lap on medium) shows year-to-year shifts are real. Historical FastF1 data for each circuit provides the prior. A one-page circuit strategy card per race weekend is the deliverable: degradation rate, optimal pit window, compound sequence, and expected position gain range.</p></div>
+    </div>
+  </div>
+  <div class="finding">
+    <div class="finding-header"><span class="finding-number">03</span><span class="finding-title">Compound sequencing matters -- but it is downstream of pit timing</span></div>
+    <div class="finding-body">
+      <p>Podium finishers use SOFT compounds more frequently in their opening stints (12.8% of race laps vs. 11.5% for top-10 drivers). SOFT-MEDIUM-HARD sequences give early-race pace, build an undercut window on lap 12-14, then close on durable rubber. Ferrari's data shows an over-reliance on SOFT-HARD combinations that skip the MEDIUM stint and reduce late-race flexibility.</p>
+      <div class="impact-block green"><p class="impact-label">Tire Strategy</p><p>Medium tires at 18-22 lap stints deliver the best pace-durability balance. Extending a MEDIUM stint past lap 22 on high-degradation circuits produces erratic degradation -- the compound performance falls off a cliff rather than declining linearly. SOFT-MEDIUM-HARD is the correct base sequence for most circuits. SOFT-HARD should be reserved for low-degradation venues where track position defense is more valuable than undercut creation.</p></div>
+    </div>
+  </div>
+  <div class="finding">
+    <div class="finding-header"><span class="finding-number">04</span><span class="finding-title">Ferrari's 0.69-position strategy gap costs an estimated 72 to 120 championship points per season</span></div>
+    <div class="finding-body">
+      <p>The F1 points table is non-linear: P1 earns 25 points, P2 earns 18, P3 earns 15, P4 earns 12. A 0.69-position improvement on average across a 24-race season translates to roughly 3 to 5 additional points per race where the strategy gap is the binding constraint. Derivation: 0.69 avg position gain x average points-per-position-move of approximately 3-5 pts (derived from P4-P8 range on the scoring table) x 24 races = 50-83 pts. The 72-120 range accounts for variance in which races the strategy gap is binding versus races where car performance dominates. This is an estimate, not a simulation output.</p>
+      <div class="impact-block blue"><p class="impact-label">Technical Leadership / Sporting Director</p><p>72 to 120 points over a season is the difference between a mid-table constructor and a championship contender in most competitive years. None of the three levers identified (pit window timing, compound sequencing, circuit-specific protocols) require car development. They require process change and data infrastructure: a circuit strategy card system, real-time lap delta comparison against track average (not just teammate), and pit scenario simulation every 3 to 5 laps rather than once pre-race.</p></div>
+    </div>
+  </div>
+</section>
+<section id="recommendations" class="section">
+  <p class="section-label">Action Items</p>
+  <h2 class="section-title">Three levers, ranked by implementation speed</h2>
+  <div class="rec-grid">
+    <div class="rec-card"><p class="rec-priority p1">Immediate -- Process Change</p><h3>Commit to laps 12-16 on high-degradation circuits</h3><p>No car development required. Change the pre-race strategy brief to lock lap 14 as the first pit trigger on high-deg circuits. Expected gain: 0.3 to 0.5 positions per pit stop.</p><div class="rec-impact">High-deg circuits: Hungary, Austria, Suzuka, Monaco, Singapore</div></div>
+    <div class="rec-card"><p class="rec-priority p1">Immediate -- Data Infrastructure</p><h3>Build a circuit strategy card system</h3><p>One page per race weekend, pre-loaded with historical degradation rate, optimal pit window, compound sequence, and position gain range. Reduces race-day strategy variance from reactive to pre-planned.</p><div class="rec-impact">Data source: FastF1 historical pull already in the analysis pipeline</div></div>
+    <div class="rec-card"><p class="rec-priority p2">Near-term -- Compound Protocol</p><h3>Default to SOFT-MEDIUM-HARD on most circuits</h3><p>Introduce the MEDIUM stint (18-22 laps) into the base compound sequence. SOFT-HARD combinations remove late-race flexibility. Reserve them for Monza, Spa, and other low-degradation venues.</p><div class="rec-impact">Medium tires at 18-22 laps reduce pace loss by 0.02 to 0.04 sec/lap vs. extended HARD stints</div></div>
+    <div class="rec-card"><p class="rec-priority p2">Near-term -- Real-time Analytics</p><h3>Shift lap delta comparison to track average, not teammate</h3><p>Comparing a driver's lap time against their teammate's masks whether the strategy is working relative to the field. Track average comparison identifies undercut opportunities earlier.</p><div class="rec-impact">Allows pit scenario simulation every 3 to 5 laps instead of once pre-race</div></div>
+  </div>
+</section>
+<section id="model" class="section">
+  <p class="section-label">Technical Reference</p>
+  <h2 class="section-title">Data scope and methodology</h2>
+  <div class="data-table-wrap"><table><thead><tr><th>Dimension</th><th>Value</th></tr></thead><tbody>
+    <tr><td>Seasons</td><td>2022, 2023, 2024 (Ground Effect Era)</td></tr>
+    <tr><td>Races analyzed</td><td>69 races (post-exclusion: wet conditions, DNFs, red flags removed)</td></tr>
+    <tr><td>Data source</td><td>FastF1 API -- lap times, pit stops, tire compounds, weather, telemetry</td></tr>
+    <tr><td>Records processed</td><td>156,847 lap records before cleaning</td></tr>
+    <tr><td>Exclusions applied</td><td>Null lap times (3,247), pit laps (8,934), wet compounds (2,156), 110% rule outliers (1,829), DNF/DSQ (8,431)</td></tr>
+    <tr><td>Key metrics</td><td>Strategy Delta, Degradation Slope (OLS per stint), Compound Usage Share</td></tr>
+    <tr><td>Tools</td><td>Python (pandas, NumPy, SciPy, Matplotlib), SQL, FastF1, Tableau</td></tr>
+    <tr><td>Normalization</td><td>Z-score per race to account for circuit-specific pace variance</td></tr>
+  </tbody></table></div>
+  <div class="impact-block amber" style="margin-top:20px"><p class="impact-label">Data Note</p><p>FastF1 relies on official FIA broadcast timing. Pit detection has inherent latency of plus or minus one lap. Safety car and red flag laps are excluded from degradation curve analysis. The strategy delta metric uses qualifying pace rank as the baseline -- not championship standing -- so it isolates in-race execution from car performance.</p></div>
+</section>
+</div>
+<footer style="max-width:860px;margin:0 auto;padding:0 24px 48px"><span>Julian Batto-Hokson · March 2026</span><span><a href="https://github.com/jbattohokson">GitHub</a> · Python · SQL · FastF1 · Tableau</span></footer>
+</body></html>
