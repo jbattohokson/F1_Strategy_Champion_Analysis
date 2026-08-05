@@ -1,7 +1,7 @@
 # Podium finishers don't just drive faster.
 ### They pit smarter. The data shows by how much.
 
-> **[Live Report](https://jbattohokson.github.io/F1_Strategy_Champion_Analysis/F1_Strategy_Champion_Analysis.html)** | [GitHub Repo](https://github.com/jbattohokson/F1_Strategy_Champion_Analysis)
+> **[Live Report](https://jbattohokson.github.io/F1_Strategy_Champion_Analysis/F1_Strategy_Champion_Analysis.html)** | **[Tableau Dashboard](https://public.tableau.com/app/profile/julian.batto.hokson/viz/F1_Strategy_Champion_Analysis_V2/Dashboard2)** | [GitHub Repo](https://github.com/jbattohokson/F1_Strategy_Champion_Analysis)
 
 ---
 
