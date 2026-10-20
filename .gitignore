@@ -1,5 +1,9 @@
+# FastF1 cache (several GB) and generated outputs
 f1_cache/
-raw_data/
+cache/
 tableau_export/
-charts/
 *.db
+data.zip
+__pycache__/
+.DS_Store
+# python/raw_data/ IS committed on purpose: it lets the analysis rerun without the 7 GB FastF1 cache

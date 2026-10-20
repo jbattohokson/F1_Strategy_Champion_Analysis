@@ -236,7 +236,7 @@ def build_lap_in_stint(laps):
     laps["lap_in_stint"] = laps.groupby(["season", "race", "Driver", "Stint"]).cumcount() + 1
     return laps
 
-def load_to_sql_and_summarize(laps, results):
+def load_to_sql_and_summarize(laps, results, pit_source=None):
     """
     Load cleaned data into SQLite and build summary tables:
     average pace per stint, pit stop deltas, position changes, degradation by compound/circuit.
@@ -268,7 +268,10 @@ def load_to_sql_and_summarize(laps, results):
     stint_summary.to_sql("stint_summary", conn, if_exists="replace", index=False)
 
     #Summary: pit stops (first pit lap, count) and position change
-    pit_laps = laps[laps["PitInTime"].notna()].copy()
+    # Pit laps must come from the uncleaned laps: clean_laps() drops every in/out lap,
+    # so searching the cleaned frame for PitInTime always found zero pit stops.
+    pit_frame = pit_source if pit_source is not None else laps
+    pit_laps = pit_frame[pit_frame["PitInTime"].notna()].copy()
     if len(pit_laps) > 0:
         pit_summary = (
             pit_laps.groupby(["season", "race", "Driver"])
@@ -919,7 +922,7 @@ def main():
     laps_clean, results_clean = clean_laps(laps_raw, results_raw)
     laps_clean = build_lap_in_stint(laps_clean)
     stint_summary, pit_summary, race_strategy, results_with_groups = load_to_sql_and_summarize(
-        laps_clean, results_raw
+        laps_clean, results_raw, pit_source=laps_raw
     )  #results_raw here is already filtered to majority drivers
 
     #Persist cleaned laps with position_group and TeamName for analysis (merge from results)
@@ -932,7 +935,7 @@ def main():
     print("\nPHASE 4 — ANALYZE: Building degradation, strategy delta, pit windows...")
     degradation = build_degradation_curves(laps_clean)
     strategy_delta = build_strategy_delta(laps_clean, results_with_groups)
-    pit_windows = build_pit_window_analysis(laps_clean, results_with_groups, race_strategy)
+    pit_windows = build_pit_window_analysis(laps_raw, results_with_groups, race_strategy)  # raw laps still have pit stops
 
     #Save degradation to DB
     conn = sqlite3.connect(OUTPUT_DB)
