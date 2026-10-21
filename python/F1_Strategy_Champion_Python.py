@@ -137,6 +137,33 @@ def prepare_season_data(seasons):
     return df_laps, df_results, df_weather
 
 
+#Timedelta columns FastF1 writes; to_csv stores them as text like "0 days 00:01:40.236000"
+_TIMEDELTA_COLS = ["Time", "LapTime", "PitOutTime", "PitInTime", "Sector1Time", "Sector2Time", "Sector3Time",
+                   "Sector1SessionTime", "Sector2SessionTime", "Sector3SessionTime", "LapStartTime",
+                   "Q1", "Q2", "Q3"]
+
+
+def load_raw_csvs():
+    """Read the committed raw_data/ CSVs instead of FastF1.
+
+    AUDITED 2026-10-21: .gitignore says raw_data/ is committed so the analysis can
+    rerun without the multi-GB FastF1 cache, but nothing read it back. Every run
+    went to the FastF1 API (and fails offline). main() now uses these CSVs when
+    they exist; pass --refresh to re-download.
+    """
+    frames = []
+    for name in ["raw_laps.csv", "raw_results.csv", "raw_weather.csv"]:
+        df = pd.read_csv(os.path.join(RAW_DIR, name), low_memory=False)
+        for col in _TIMEDELTA_COLS:
+            if col in df.columns:
+                df[col] = pd.to_timedelta(df[col], errors="coerce")
+        frames.append(df)
+    laps, results, weather = frames
+    print(f"  Loaded raw_data/ CSVs: {len(laps):,} laps, {len(results):,} results, "
+          f"{results.groupby('season')['race'].nunique().to_dict()} races per season")
+    return laps, results, weather
+
+
 def filter_to_majority_drivers(laps, results, majority_pct=MAJORITY_THRESHOLD):
     """
     Keep only drivers who participated in a majority of races in each season.
@@ -353,6 +380,62 @@ def build_strategy_delta(laps, results):
     return merged
 
 
+def build_pace_adjusted_delta(strategy_delta, n_boot=2000, seed=42):
+    """Strategy delta relative to cars with the same race pace.
+
+    AUDITED 2026-10-21: raw strategy delta (pace_rank - finish) has a ceiling.
+    The fastest car can't finish better than P1, so pace rank 1 averages -0.52
+    and front-runners look like they "lose places to strategy" by construction.
+    And "Podium" is defined by finishing P1-P3, so its delta is pushed up by
+    selection. Comparing Ferrari (mean pace rank ~4) with podium finishers
+    was therefore circular.
+
+    Here each team is compared with the average delta that OTHER teams' cars
+    get at the same pace rank (leave-one-team-out), so a team isn't graded
+    against itself. CIs come from a bootstrap that resamples whole races,
+    since the two cars in a race aren't independent.
+
+    Returns (per driver-race frame with expected_delta and delta_vs_pace,
+             per-team summary).
+    """
+    sd = strategy_delta.dropna(subset=["pace_rank", "finish_position", "TeamName"]).copy()
+    sd["pace_rank"] = sd["pace_rank"].astype(int)
+    sd["expected_delta"] = np.nan
+    #If no other team ever ran at a pace rank (a dominant car), fall back to the all-car
+    #average there rather than dropping those races; baseline_fallback counts how often
+    all_cars = sd.groupby("pace_rank")["strategy_delta"].mean()
+    sd["baseline_fallback"] = False
+    for team in sd["TeamName"].unique():
+        others = sd[sd["TeamName"] != team].groupby("pace_rank")["strategy_delta"].mean()
+        mask = sd["TeamName"] == team
+        expected = sd.loc[mask, "pace_rank"].map(others)
+        sd.loc[mask, "baseline_fallback"] = expected.isna()
+        sd.loc[mask, "expected_delta"] = expected.fillna(sd.loc[mask, "pace_rank"].map(all_cars))
+    sd["delta_vs_pace"] = sd["strategy_delta"] - sd["expected_delta"]
+
+    rng = np.random.default_rng(seed)
+    rows = []
+    for team, g in sd.dropna(subset=["delta_vs_pace"]).groupby("TeamName"):
+        by_race = g.groupby(["season", "race"])["delta_vs_pace"].agg(["sum", "count"])
+        sums, counts = by_race["sum"].to_numpy(), by_race["count"].to_numpy()
+        idx = rng.integers(0, len(by_race), size=(n_boot, len(by_race)))
+        boot = sums[idx].sum(axis=1) / counts[idx].sum(axis=1)
+        rows.append({
+            "TeamName": team,
+            "driver_races": len(g),
+            "baseline_fallback_rows": int(g["baseline_fallback"].sum()),
+            "races": len(by_race),
+            "mean_pace_rank": g["pace_rank"].mean(),
+            "mean_finish": g["finish_position"].mean(),
+            "raw_strategy_delta": g["strategy_delta"].mean(),
+            "delta_vs_pace": g["delta_vs_pace"].mean(),
+            "ci_low": np.percentile(boot, 2.5),
+            "ci_high": np.percentile(boot, 97.5),
+        })
+    summary = pd.DataFrame(rows).sort_values("delta_vs_pace", ascending=False).reset_index(drop=True)
+    return sd, summary
+
+
 def build_pit_window_analysis(laps, results, race_strategy):
     """Pit window: early (<33%), mid (33-66%), late (>66%) of race distance.
     One row per pit stop per driver per race, labeled by window timing."""
@@ -435,6 +518,9 @@ def export_tableau_files(laps, degradation, race_strategy, strategy_delta, pit_w
             print(f"  Ferrari benchmark exports: ferrari_race_strategy.csv, ferrari_strategy_delta.csv")
 
     #Ferrari benchmark summary (answers "how does Ferrari compare?")
+    pace_adj, team_summary = build_pace_adjusted_delta(strategy_delta)
+    pace_adj.to_csv(os.path.join(out, "strategy_delta_pace_adjusted.csv"), index=False)
+    team_summary.to_csv(os.path.join(out, "team_pace_adjusted_delta.csv"), index=False)
     ferrari_benchmark = build_ferrari_benchmark(strategy_delta, pit_windows, laps, degradation)
     if ferrari_benchmark is not None and len(ferrari_benchmark) > 0:
         pd.DataFrame([ferrari_benchmark]).to_csv(os.path.join(out, "ferrari_benchmark.csv"), index=False)
@@ -461,15 +547,26 @@ def build_ferrari_benchmark(strategy_delta, pit_windows, laps, degradation):
         podium_pits = pit_windows[pit_windows["position_group"] == "Podium"]
         out["podium_pct_early_pit"] = 100 * (podium_pits["pit_window"] == "early").mean() if len(podium_pits) else np.nan
         out["field_pct_early_pit"] = 100 * (pit_windows["pit_window"] == "early").mean()
-    #Compound usage (Ferrari vs Podium): % laps on SOFT / MEDIUM / HARD
+    #Compound usage: % laps on SOFT / MEDIUM / HARD. Podium and field exclude Ferrari's
+    #own laps so Ferrari isn't partly compared with itself
     if "TeamName" in laps.columns:
-        f_laps = laps[laps["TeamName"] == TEAM_OF_INTEREST]
-        p_laps = laps[laps["position_group"] == "Podium"]
+        not_ferrari = laps["TeamName"] != TEAM_OF_INTEREST
+        groups = {
+            "ferrari": laps[~not_ferrari],
+            "podium": laps[(laps["position_group"] == "Podium") & not_ferrari],
+            "field": laps[not_ferrari],
+        }
         for comp in DRY_COMPOUNDS:
-            fc = f_laps[f_laps["Compound"].str.upper() == comp]
-            pc = p_laps[p_laps["Compound"].str.upper() == comp]
-            out[f"ferrari_pct_{comp}"] = 100 * len(fc) / len(f_laps) if len(f_laps) else np.nan
-            out[f"podium_pct_{comp}"] = 100 * len(pc) / len(p_laps) if len(p_laps) else np.nan
+            for label, g in groups.items():
+                out[f"{label}_pct_{comp}"] = 100 * (g["Compound"].str.upper() == comp).mean() if len(g) else np.nan
+    _, team_summary = build_pace_adjusted_delta(strategy_delta)
+    f = team_summary[team_summary["TeamName"] == TEAM_OF_INTEREST]
+    if len(f):
+        f = f.iloc[0]
+        out["ferrari_mean_pace_rank"] = f["mean_pace_rank"]
+        out["ferrari_delta_vs_pace"] = f["delta_vs_pace"]
+        out["ferrari_delta_vs_pace_ci_low"] = f["ci_low"]
+        out["ferrari_delta_vs_pace_ci_high"] = f["ci_high"]
     return out
 
 
@@ -485,7 +582,17 @@ def print_ferrari_benchmark(benchmark):
     if "ferrari_pct_early_pit" in benchmark and not np.isnan(benchmark.get("ferrari_pct_early_pit", np.nan)):
         print(f"  Early pit stop share (<33% race distance):")
         print(f"    Ferrari = {benchmark.get('ferrari_pct_early_pit', np.nan):.1f}%  |  Podium = {benchmark.get('podium_pct_early_pit', np.nan):.1f}%  |  Field = {benchmark.get('field_pct_early_pit', np.nan):.1f}%")
-    print("  (Ferrari should aim for Podium-like strategy delta and early pit share.)")
+    if "ferrari_delta_vs_pace" in benchmark:
+        print(f"  Pace-adjusted (vs other teams' cars at the same pace rank):")
+        print(f"    Ferrari = {benchmark['ferrari_delta_vs_pace']:+.2f} positions/race "
+              f"(95% CI {benchmark['ferrari_delta_vs_pace_ci_low']:+.2f} to {benchmark['ferrari_delta_vs_pace_ci_high']:+.2f}), "
+              f"mean pace rank {benchmark['ferrari_mean_pace_rank']:.1f}")
+    if "ferrari_pct_HARD" in benchmark:
+        print("  Lap share SOFT / MEDIUM / HARD:")
+        for label in ["ferrari", "podium", "field"]:
+            print(f"    {label.capitalize():<8} " + " / ".join(f"{benchmark[f'{label}_pct_{c}']:.1f}%" for c in DRY_COMPOUNDS)
+                  + ("  (excl. Ferrari)" if label != "ferrari" else ""))
+    print("  Raw delta vs Podium is circular (podium = finished P1-P3); read the pace-adjusted line.")
     print("=" * 60)
 
 #CHARTS (same outputs as your original analysis — Ground Effect Era 2022–2025)
@@ -699,62 +806,75 @@ def generate_charts(laps, degradation, strategy_delta, race_strategy, pit_window
 
 #PHASE 6 — ACT (top 3 recommendations)
 
+def plot_team_pace_adjusted(team_summary):
+    """Positions gained per race vs other teams' cars at the same pace rank, with 95% CIs."""
+    if team_summary is None or len(team_summary) == 0:
+        return
+    d = team_summary.sort_values("delta_vs_pace")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    colors = ["#DC143C" if t == TEAM_OF_INTEREST else TOP10_COLOR for t in d["TeamName"]]
+    ax.barh(d["TeamName"], d["delta_vs_pace"], color=colors, alpha=0.85,
+            xerr=[d["delta_vs_pace"] - d["ci_low"], d["ci_high"] - d["delta_vs_pace"]],
+            error_kw={"elinewidth": 1, "capsize": 3})
+    ax.axvline(0, color="black", linewidth=0.8)
+    ax.set_xlabel("Positions gained per race vs cars at the same race-pace rank (95% CI, races resampled)")
+    ax.set_title("Pace-adjusted strategy delta by team, 2022-2024", fontsize=13, fontweight="bold")
+    ax.grid(axis="x", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(os.path.join(CHARTS_DIR, "chart9_team_pace_adjusted_delta.png"), dpi=150, bbox_inches="tight")
+    plt.close()
+    print("  Saved chart9_team_pace_adjusted_delta.png")
+
+
 def print_recommendations(degradation, pit_windows, strategy_delta, race_strategy, ferrari_benchmark=None):
-    """Top 3 recommendations from Ferrari's perspective: optimal pit windows,
-    compound selection, undercut value by circuit. Uses Ferrari benchmark when available."""
+    """Recommendations from Ferrari's perspective. Every claim is computed from the data.
+
+    AUDITED 2026-10-21: the old text told Ferrari to "commit to earlier stops to
+    match podium" while printing that Ferrari already pits early MORE often,
+    and the SOFT stint lengths (12-14 / 18-22 laps) and "SOFT -> HARD" advice
+    were fixed strings, not outputs.
+    """
     print("\n" + "=" * 60)
-    print("TOP 3 RECOMMENDATIONS (from Ferrari's perspective vs full-time field)")
+    print("RECOMMENDATIONS (from Ferrari's perspective vs full-time field)")
     print("=" * 60)
+    b = ferrari_benchmark or {}
 
-    #Ferrari benchmark: strategy delta vs field
-    if len(strategy_delta) > 0 and "TeamName" in strategy_delta.columns:
-        field_avg = strategy_delta["strategy_delta"].mean()
-        ferrari_mask = strategy_delta["TeamName"] == TEAM_OF_INTEREST
-        if ferrari_mask.any():
-            ferrari_avg = strategy_delta.loc[ferrari_mask, "strategy_delta"].mean()
-            print(f"\n   Benchmark: Ferrari avg strategy delta = {ferrari_avg:.2f}  |  Field avg = {field_avg:.2f}")
-            if ferrari_benchmark and not np.isnan(ferrari_benchmark.get("podium_avg_strategy_delta", np.nan)):
-                print(f"   Podium avg = {ferrari_benchmark['podium_avg_strategy_delta']:.2f} — Ferrari should aim for this.")
-            if ferrari_avg < field_avg:
-                print("   (Positive = finished better than raw pace; Ferrari has room to gain vs field.)")
+    #1. Is Ferrari's gap strategy or pace?
+    if "ferrari_delta_vs_pace" in b:
+        lo, hi = b["ferrari_delta_vs_pace_ci_low"], b["ferrari_delta_vs_pace_ci_high"]
+        verdict = ("better than" if lo > 0 else "worse than" if hi < 0 else "no different from")
+        print("\n1. THE GAP IS PACE, NOT STRATEGY")
+        print(f"   Ferrari's cars average pace rank {b['ferrari_mean_pace_rank']:.1f}. Against other teams' cars at the")
+        print(f"   same pace rank, Ferrari finishes {b['ferrari_delta_vs_pace']:+.2f} positions/race "
+              f"(95% CI {lo:+.2f} to {hi:+.2f}): {verdict} the field.")
+        print("   Strategy is converting the pace Ferrari has. Closing the gap to the front needs race pace.")
 
-    #1. Pit window timing (Ferrari-specific when benchmark available)
-    if len(pit_windows) > 0 and "pit_window" in pit_windows.columns:
-        early_pct = (pit_windows["pit_window"] == "early").mean() * 100
-        print("\n1. PIT TIMING — Commit to the early window on high-deg circuits")
-        if ferrari_benchmark and "ferrari_pct_early_pit" in ferrari_benchmark and not np.isnan(ferrari_benchmark.get("ferrari_pct_early_pit", np.nan)):
-            print(f"   Ferrari's early pit share = {ferrari_benchmark['ferrari_pct_early_pit']:.1f}% vs Podium {ferrari_benchmark.get('podium_pct_early_pit', 0):.1f}% — commit to earlier stops to match podium.")
-        print(f"   Among full-time drivers, early stops (<33% race distance) are used in ~{early_pct:.0f}% of pit events.")
-        #Derive the early pit window lap range from actual data rather than hardcoding
-        if "LapNumber" in pit_windows.columns and "total_laps" in pit_windows.columns:
-            early_pits = pit_windows[pit_windows["pit_window"] == "early"]
-            if len(early_pits) > 0:
-                early_lap_lo = int(early_pits["LapNumber"].quantile(0.10))
-                early_lap_hi = int(early_pits["LapNumber"].quantile(0.90))
-                print(f"   Based on {len(early_pits)} early-window pit stops in the dataset: typical range is laps {early_lap_lo}\u2013{early_lap_hi}.")
-            else:
-                print("   No early-window pit stop data available to derive lap range.")
+    #2. Pit timing
+    if "ferrari_pct_early_pit" in b and not np.isnan(b.get("ferrari_pct_early_pit", np.nan)):
+        f, pod, fld = b["ferrari_pct_early_pit"], b["podium_pct_early_pit"], b["field_pct_early_pit"]
+        print("\n2. PIT TIMING — leave it")
+        print(f"   Early-window share (<33% of race distance): Ferrari {f:.1f}%, podium {pod:.1f}%, field {fld:.1f}%.")
+        print(f"   Ferrari is within {abs(f - pod):.1f} points of podium finishers; moving stops earlier has no support here.")
 
-    #2. Compound selection
+    #3. Compound mix
+    if "ferrari_pct_HARD" in b:
+        fh, ph, flh = b["ferrari_pct_HARD"], b["podium_pct_HARD"], b["field_pct_HARD"]
+        print("\n3. COMPOUND MIX — Ferrari runs like the field")
+        print(f"   HARD lap share: Ferrari {fh:.1f}%, rest of field {flh:.1f}%, podium finishers (excl. Ferrari) {ph:.1f}%.")
+        print("   Podium cars run less HARD than everyone, Ferrari included. That's likely a result of")
+        print("   running at the front (track position, fewer stops), not a choice Ferrari can copy.")
     if len(degradation) > 0:
-        by_compound = degradation.groupby("compound")["lap_time_degradation_slope"].mean()
-        soft_slope = by_compound.get("SOFT", np.nan)
-        hard_slope = by_compound.get("HARD", np.nan)
-        print("\n2. COMPOUND SELECTION — Calibrate SOFT stint length by circuit type")
-        if not (np.isnan(soft_slope) or np.isnan(hard_slope)):
-            print(f"   SOFT degrades at ~{soft_slope:.3f} sec/lap vs HARD ~{hard_slope:.3f} sec/lap.")
-        print("   On high-deg circuits keep SOFT stints to 12–14 laps; on low-deg, 18–22 is viable.")
-        print("   Best transition across the era: SOFT → HARD for pace then longevity.")
+        by_compound = degradation.groupby("compound")["lap_time_degradation_slope"].median()
+        print("   Median degradation slope (sec/lap, fuel burn-off NOT removed, so it understates wear): "
+              + ", ".join(f"{c} {by_compound[c]:+.3f}" for c in DRY_COMPOUNDS if c in by_compound))
 
-    #3. Where undercuts are highest value
+    #4. Where strategy moves results
     if len(strategy_delta) > 0:
         by_race = strategy_delta.groupby("race")["strategy_delta"].std().sort_values(ascending=False)
-        print("\n3. CIRCUITS WHERE STRATEGY MATTERS MOST")
-        print("   Strategy delta variance is highest at circuits where pit/compound choices")
-        print("   have the biggest impact. Focus pre-race planning on those venues.")
         if len(by_race) > 0:
-            top_circuit = by_race.index[0]
-            print(f"   Highest strategy variance in dataset: {top_circuit}.")
+            print("\n4. CIRCUITS WHERE FINISHING ORDER STRAYS MOST FROM PACE")
+            print("   " + ", ".join(f"{r} ({v:.1f})" for r, v in by_race.head(3).items())
+                  + " — std dev of strategy delta. Pre-race planning matters most here.")
 
     print("\n" + "=" * 60)
 
@@ -798,7 +918,10 @@ def predict_finish_position(laps, degradation, strategy_delta, race_strategy, pi
 
         #Step 2: Join pit stop features (first pit lap, pit count) from race_strategy
         if "first_pit_lap" in race_strategy.columns:
-            pit_cols = race_strategy[["season", "race", "Driver", "first_pit_lap", "pit_count"]].copy()
+            keep = ["season", "race", "Driver", "first_pit_lap", "pit_count"]
+            if "GridPosition" in race_strategy.columns:
+                keep.append("GridPosition")
+            pit_cols = race_strategy[keep].copy()
             pace_features = pace_features.merge(pit_cols, on=["season", "race", "Driver"], how="left")
 
         #Step 3: Average degradation slope per driver per race
@@ -815,7 +938,7 @@ def predict_finish_position(laps, degradation, strategy_delta, race_strategy, pi
         if "Compound" in laps.columns:
             soft_usage = (
                 laps.groupby(["season", "race", "Driver"])
-                .apply(lambda g: (g["Compound"].str.upper() == "SOFT").mean())
+                ["Compound"].apply(lambda c: (c.str.upper() == "SOFT").mean())
                 .reset_index(name="soft_usage_pct")
             )
             stint_count = (
@@ -832,7 +955,7 @@ def predict_finish_position(laps, degradation, strategy_delta, race_strategy, pi
             "pit_count", "avg_deg_slope", "soft_usage_pct", "stint_count"
         ] if c in pace_features.columns]
 
-        model_df = pace_features[feature_cols + ["finish_position"]].dropna()
+        model_df = pace_features.dropna(subset=feature_cols + ["finish_position"]).reset_index(drop=True)
         print(f"\n  Modeling dataset: {len(model_df)} driver-race records, {len(feature_cols)} features")
 
         if len(model_df) < 20:
@@ -857,6 +980,39 @@ def predict_finish_position(laps, degradation, strategy_delta, race_strategy, pi
         print(f"\n  Random Forest Results:")
         print(f"    R2   (variance in finish position explained): {r2:.4f}")
         print(f"    RMSE (avg position prediction error)        : {rmse:.2f} places")
+
+        #AUDITED 2026-10-21: a random 80/20 split puts drivers from the same race in both
+        #train and test, so the model partly learns each race's field and R2 is flattered
+        #(0.73). Grouped CV holds out whole races. A pace + grid baseline shows how much
+        #the strategy features (pits, compounds, degradation) actually add.
+        from sklearn.model_selection import GroupKFold, cross_val_predict
+        groups = model_df["season"].astype(str) + " " + model_df["race"]
+        strategy_cols = [c for c in ["first_pit_lap", "pit_count", "avg_deg_slope", "soft_usage_pct", "stint_count"]
+                         if c in feature_cols]
+        base_cols = ["delta_to_leader"] + (["GridPosition"] if "GridPosition" in model_df.columns else [])
+        specs = {
+            "original features": feature_cols,
+            "pace + grid (baseline)": base_cols,
+            "pace + grid + strategy": base_cols + strategy_cols,
+        }
+        grouped = []
+        for name, cols in specs.items():
+            d = model_df.dropna(subset=cols)
+            g = groups.loc[d.index]
+            pred = cross_val_predict(
+                RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1, min_samples_leaf=5),
+                d[cols], d["finish_position"], groups=g, cv=GroupKFold(n_splits=5),
+            )
+            grouped.append({"model": name, "features": ", ".join(cols), "n": len(d),
+                            "grouped_cv_r2": r2_score(d["finish_position"], pred),
+                            "grouped_cv_rmse": float(np.sqrt(mean_squared_error(d["finish_position"], pred)))})
+        grouped = pd.DataFrame(grouped)
+        print("\n  Race-grouped 5-fold CV (whole races held out):")
+        for _, row in grouped.iterrows():
+            print(f"    {row['model']:<24} R2={row['grouped_cv_r2']:.3f}  RMSE={row['grouped_cv_rmse']:.2f}")
+        gain = (grouped.loc[grouped["model"] == "pace + grid + strategy", "grouped_cv_r2"].iloc[0]
+                - grouped.loc[grouped["model"] == "pace + grid (baseline)", "grouped_cv_r2"].iloc[0])
+        print(f"    Strategy features add {gain:+.3f} R2 on top of race pace and grid position.")
 
         #Step 9: Feature importances — higher = more predictive of finish position
         importance_df = pd.DataFrame({
@@ -896,11 +1052,13 @@ def predict_finish_position(laps, degradation, strategy_delta, race_strategy, pi
         pred_out["residual"] = pred_out["finish_position"] - pred_out["predicted_position"]
         pred_out.to_csv(os.path.join(out_dir, "predictive_model_predictions.csv"), index=False)
         importance_df.to_csv(os.path.join(out_dir, "predictive_model_importance.csv"), index=False)
+        grouped.to_csv(os.path.join(out_dir, "predictive_model_grouped_cv.csv"), index=False)
         print(f"  Saved: predictive_model_predictions.csv")
         print(f"  Saved: predictive_model_importance.csv")
 
     except Exception as e:
-        print(f"  Predictive modeling skipped: {e}")
+        print(f"  Predictive modeling FAILED: {e!r}")
+        raise
 
     print("=" * 60)
 
@@ -909,8 +1067,14 @@ def predict_finish_position(laps, degradation, strategy_delta, race_strategy, pi
 
 def main():
     print("PHASE 1 — ASK: Problem defined (see docstring at top).")
-    print("\nPHASE 2 — PREPARE: Loading race data from f1_cache...")
-    laps_raw, results_raw, weather_raw = prepare_season_data(SEASONS)
+    import sys
+    have_raw = all(os.path.exists(os.path.join(RAW_DIR, f)) for f in ["raw_laps.csv", "raw_results.csv", "raw_weather.csv"])
+    if have_raw and "--refresh" not in sys.argv:
+        print("\nPHASE 2 — PREPARE: Loading committed raw_data/ CSVs (use --refresh to re-download via FastF1)...")
+        laps_raw, results_raw, weather_raw = load_raw_csvs()
+    else:
+        print("\nPHASE 2 — PREPARE: Loading race data from FastF1 / f1_cache...")
+        laps_raw, results_raw, weather_raw = prepare_season_data(SEASONS)
 
     print("\n  Filtering to drivers who participated in a majority of races (Ferrari perspective)...")
     laps_raw, results_raw = filter_to_majority_drivers(laps_raw, results_raw, MAJORITY_THRESHOLD)
@@ -954,6 +1118,7 @@ def main():
 
     print("\n  Generating charts (same style as your original outputs)...")
     generate_charts(laps_clean, degradation, strategy_delta, race_strategy, pit_windows)
+    plot_team_pace_adjusted(build_pace_adjusted_delta(strategy_delta)[1])
 
     print("\nPHASE 6 — ACT: Recommendations")
     print_recommendations(degradation, pit_windows, strategy_delta, race_strategy, ferrari_benchmark)
