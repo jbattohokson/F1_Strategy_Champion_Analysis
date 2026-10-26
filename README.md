@@ -14,7 +14,7 @@ Race data comes from the [FastF1](https://github.com/theOehrly/Fast-F1) library 
 |---|---|
 | Python (FastF1, pandas, NumPy, SciPy, scikit-learn, Matplotlib) | Ingestion, cleaning, analysis, model, charts |
 | SQLite | Raw and cleaned tables, single source of truth |
-| Tableau | Strategy dashboard |
+| Tableau | Strategy dashboard (`tableau/`). Dashboards 1 and 3 are being re-exported after the 2026-10-19 pit-stop fix; the Python charts and the project page carry the corrected numbers. |
 
 ## Data
 
